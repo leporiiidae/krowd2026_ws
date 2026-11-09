@@ -1,0 +1,28 @@
+# ROS build files
+build/
+devel/
+install/
+log/
+logs/
+
+# ROS bag files
+*.bag
+*.bag.active
+*.db3
+*.mcap
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Editor
+.vscode/
+.idea/
+
+# Temporary files
+*.swp
+*~
+
+# Excluded legacy package
+stop_mission_0913/

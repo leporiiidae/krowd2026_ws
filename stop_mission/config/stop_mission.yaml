@@ -1,0 +1,149 @@
+stop_mission_cone_perception:
+  ros__parameters:
+    pointcloud_topic: /ouster/points
+    odometry_topic: /ekf/odometry
+    start_topic: /stop_mission/start
+    auto_start: true
+    frame_id: base_link
+    marker_topic: /stop_mission/cones
+    raw_marker_topic: /stop_mission/raw_cones
+    chain_marker_topic: /stop_mission/chain_markers
+    sector_marker_topic: /stop_mission/search_sectors
+    virtual_marker_topic: /stop_mission/virtual_cones
+    status_topic: /stop_mission/perception_status
+
+    # Ouster PointCloud2 is transformed os_lidar -> base_link using bag /tf_static.
+    min_x: 2.0
+    # Measured on rosbags/0912_1: after the shape filters below, no real cone
+    # survives past ~14 m. Everything that used to appear in 14-20 m was
+    # roadside structure, so the ROI now ends just beyond the usable range.
+    max_x: 15.0
+    # The cone corridor sits at |y| = 1.0-2.5 m and the roadside reed/guardrail
+    # line at |y| = 6.0-8.0 m, with nothing in between. 4.0 drops 2.6 false
+    # clusters per frame (25 % of all detections) and zero cones.
+    max_abs_y: 4.0
+    min_z: 0.05
+    # Must stay well above max_cluster_top_z: a reed has to be seen in full to
+    # be rejected for being too tall. Cropping here instead would truncate it
+    # into something cone-shaped.
+    max_z: 0.90
+    voxel_size: 0.05
+    cluster_tolerance: 0.28
+    # Measured on the run01/run02 bags (32-ring Ouster, 1.37 deg ring spacing, 0.80 m
+    # above base_link): a cone yields ~16 voxel points at 2-5 m, ~11 at 5-8 m, ~6 at
+    # 8-11 m, ~5 at 11-14 m and a single ring (height 0) beyond 14 m. min 5 drops
+    # small grass tufts while keeping 85-92 % of cones at 8-11 m.
+    min_cluster_points: 4
+    max_cluster_points: 30
+    max_cluster_diameter: 0.65
+    # Cluster height is quantised by the ring spacing (0 or >= 0.22 m beyond 8 m), so
+    # any value between 0.08 and 0.20 is equivalent; >= 0.25 would demand three rings
+    # and lose every cone past ~8 m.
+    min_cluster_height: 0.08
+    # Cone tops measure z <= 0.45 (95th pct) in base_link; reeds and guardrail
+    # posts start at 0.46 and cluster at 0.65-0.72. This cut keeps 98 % of cones
+    # and removes 99.8 % of the roadside clusters, including the ones that lean
+    # into the corridor at long range where the max_abs_y gate cannot reach.
+    max_cluster_top_z: 0.50
+
+    # Do not let immediate-front clutter become the first classified cone.
+    seed_min_x: 1.5
+    # Ignore centerline clutter near the vehicle when selecting the initial seeds.
+    seed_min_abs_y: 1.0
+    side_match_max_distance: 3.0
+    initial_chain_min_length: 2
+    # Half-angle of the forward search fan (full fan = 2x). Narrowed from 35 so
+    # roadside grass beside the cone line is not associated to a side.
+    side_sector_angle_deg: 5.0
+    side_sector_radius: 5.0
+    side_chain_duplicate_distance: 0.55
+    # Associate the current gray-cylinder detections to a persistent side, but
+    # always publish/plan with the current detection coordinate itself.
+    tracking_match_distance: 0.80
+    # If EKF compensation moves the internal chain away from current LiDAR,
+    # rebuild only after consecutive loss and only when both sides are visible.
+    tracking_min_classified: 2
+    tracking_reinitialize_frames: 2
+    sector_tail_size: 2
+    max_chain_points: 40
+    # No age timeout: compensated points remain until they pass behind the vehicle
+    # or the bounded chain exceeds max_chain_points.
+    chain_prune_behind_x: -0.5
+    # Persist the initialized chains and transform them with the full relative EKF pose.
+    motion_min_dt: 0.005
+    # The course begins straight. A larger change between LiDAR frames is an EKF
+    # initial-heading realignment, not physical vehicle rotation. Ignore that pose
+    # delta and rebuild sides from the current gray-cylinder coordinates.
+    yaw_jump_threshold_deg: 5.0
+    # Stay in current-LiDAR reclassification until yaw is quiet for this many frames.
+    yaw_stable_threshold_deg: 1.0
+    yaw_stable_frames: 5
+    odometry_buffer_size: 500
+    # Reset automatically when a bag is replayed from an earlier timestamp.
+    time_rewind_tolerance_sec: 0.1
+
+    # The planner already has a one-side offset fallback and never consumes these
+    # synthetic cones, so enabling this is purely a /stop_mission/virtual_cones
+    # RViz overlay showing what the missing side would have looked like.
+    enable_virtual_cones: false
+    virtual_track_width: 3.8
+    virtual_count_diff_threshold: 3
+    virtual_max_count: 8
+    tf_timeout: 0.05
+
+stop_mission_pointcloud_hold:
+  ros__parameters:
+    input_topic: /ouster/points
+    # RViz-only copy. The perception/controller never subscribe to this topic.
+    output_topic: /stop_mission/held_points
+    republish_rate_hz: 2.0
+
+stop_mission_cone_planner:
+  ros__parameters:
+    marker_topic: /stop_mission/cones
+    path_topic: /stop_mission/path
+    delaunay_topic: /stop_mission/delaunay
+    end_distance_topic: /stop_mission/end_distance
+    status_topic: /stop_mission/planner_status
+    start_topic: /stop_mission/start
+    auto_start: true
+    frame_id: base_link
+    publish_rate: 20.0
+    min_inner_angle_deg: 10.0
+    max_inner_angle_deg: 160.0
+    max_turn_angle_deg: 120.0
+    one_side_offset: 3.0
+    path_spacing: 0.20
+    extension_length: 4.0
+    marker_timeout: 0.5
+    time_rewind_tolerance_sec: 0.1
+
+stop_mission_pure_pursuit:
+  ros__parameters:
+    path_topic: /stop_mission/path
+    end_distance_topic: /stop_mission/end_distance
+    odometry_topic: /ekf/odometry
+    done_topic: /stop_mission/done
+    start_topic: /stop_mission/start
+    angle_topic: /target_angle
+    speed_topic: /target_speed
+    brake_topic: /brake
+    status_topic: /stop_mission/control_status
+    lookahead_marker_topic: /stop_mission/lookahead_marker
+    auto_start: true
+    control_rate: 20.0
+    lookahead_distance: 7.0
+    wheelbase: 1.34
+    steering_sign: 5.0
+    max_steering_angle_deg: 70.0
+    # Driving target published to /target_speed (ros_can_bridge unit: m/s).
+    target_speed_mps: 9.0
+    # Mission braking is independent of speed: require ten consecutive 20Hz
+    # control frames with a fresh end distance at or below 3m.
+    braking_trigger_distance_m: 3.0
+    braking_confirmation_frames: 10
+    stop_speed_tolerance_mps: 0.20
+    done_confirmation_cycles: 5
+    path_timeout: 0.5
+    end_distance_timeout: 0.5
+    time_rewind_tolerance_sec: 0.1

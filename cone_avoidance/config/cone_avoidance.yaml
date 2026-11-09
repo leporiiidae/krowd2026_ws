@@ -1,0 +1,250 @@
+# 정적 콘 회피 파라미터. 모든 노드와 오프라인 시뮬레이터(cone_avoidance.sim)가 이 파일을 공유한다.
+# 주행 중 조정: ros2 param set /cone_mission planning.lateral_margin 0.25   (재시작 불필요)
+# TODO(실측) 표시는 미확정 값. 코드는 이 값들에 의존해 분기하지 않는다.
+/**:
+  ros__parameters:
+    vehicle:
+      length: 2.464
+      wheelbase: 1.340
+      front_overhang: 0.844
+      rear_overhang: 0.280          # 최후방은 뒷타이어
+      body_width: 1.160             # TODO(실측)
+      track_width: 1.000            # TODO(실측)
+      tire_width: 0.180             # TODO(실측)
+      max_wheel_steer_deg: 21.0     # 실측(2026-09-19) 기계적 끝단. 실제 사용각은 output_limit_rad/output_ratio 와 비교해 작은 쪽
+                                    # (0x120 소프트리밋 1.7453 rad 가 아니라 기계적 스토퍼 각도). 0~80 도만 허용
+
+    frames:
+      front_axle_x: 1.340           # 실측(2026-09-19): base_link(오도메트리 child frame) -> 전륜축 = 휠베이스이므로 base_link 는 후륜축
+      front_axle_y: 0.0
+      ground_z: -0.27               # 실측(2026-09-19): base_link 가 지면보다 0.27 m 위 -> base_link 좌표계에서 지면 z = -0.27
+                                    # perception.ground_z 대역은 이 높이에서부터 잰다 (아래 = 음수)
+      base_frame: base_link
+      use_tf: true                  # LiDAR -> base_link 를 TF 로 조회
+      lidar_xyz_rpy: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]   # use_tf=false 일 때만 사용
+
+    steering:
+      output_ratio: 6.8             # 실측(2026-09-19). 0x201 2.71 rad = 바퀴 21.5도(우), 2.75 rad = 25.0도(좌)
+                                    # -> 비가 우 7.23 / 좌 6.29 로 비대칭. 평균 6.8 사용 (Stanley 가 폐루프라 ±8% 는 흡수)
+                                    # 0 이면 can_bridge 가 기동을 거부한다 (미설정 방지)
+      output_limit_rad: 2.5         # 펌웨어 ANGLE_LIMIT_RAD 과 일치 (2026-09-21 펌웨어에서 1.7453 -> 2.5 로 상향)
+                                    # 2.5 / 6.8 = 0.368 rad = 21.1도 이므로 이제 기계적 끝단(21도)이 한계가 된다
+                                    # 기계적 끝단은 0x201 로 2.71(우) / 2.75(좌) 에서 걸렸다 -> 2.5 는 그 안쪽
+      angle_scale: 100              # 펌웨어 ANGLE_SCALE 과 반드시 일치. 현재 펌웨어 = 100 이므로 100
+                                    # 변환비가 6.8 이라 CAN 한 칸 = 바퀴 0.084도 (5 m 에 1.4 cm) -> 1000 으로 올릴 실익 없음
+                                    # 펌웨어를 1000 으로 바꾸면 여기도 1000. 불일치하면 can_status 에 angle_scale_mismatch
+      max_rate_deg_s: 17.0          # 실측(2026-09-24, 펌웨어 MIN_STEP_HALF_PERIOD_US 하향 후) 바퀴 기준
+                                    # 계획기는 이 값의 70% 로 경로를 만든다. 틀리면 따라갈 수 없는 경로가 나온다
+      rate_use_ratio: 0.7           # 탈조 여유
+      curvature_use_ratio: 0.8
+
+    reference:
+      # start_pose: 출발 즉시 차량 yaw 로 고정 (대기 없음). 0919 백 실측 — 정지 중 EKF yaw 오차 0.5도로
+      #             3 m 주행으로 뽑은 방향(0.6도) 보다 낫다. 차선의 좌우 위치는 콘 줄로 따로 잡으므로 방향만 맞으면 된다
+      # motion: 출발 후 motion_distance 만큼 직진한 뒤 그 방향으로 고정 (정지 중 yaw 를 못 믿는 차량용)
+      # fixed: 아래 측량값 사용 (가장 정확)
+      mode: start_pose
+      recheck_distance: 3.0         # start_pose: 이만큼 간 뒤 실제 이동 방향과 대조해 크게 다르면 다시 고정
+      motion_distance: 3.0          # motion 모드에서 기준선을 잡기까지 직진할 거리 (그동안 조향 0)
+      motion_distance_max: 8.0      # yaw 가 끝내 안 맞아도 여기서는 고정하고 플래그
+      yaw_agree_deg: 10.0           # 이동 방향과 EKF yaw 가 이 안으로 맞아야 고정
+      origin_x: 0.0
+      origin_y: 0.0
+      heading_deg: 0.0
+
+    rtk:
+      enabled: true
+      fix_status_min: 2             # NavSatStatus.status 가 이 값 이상이면 Fix
+      timeout: 1.0
+
+    road:
+      width: 3.8                    # 차로 폭. 왼쪽 경계 = 중앙선, 오른쪽 경계 = 실선
+      lane_hard_constraint: true    # true: 차선 이탈 금지 (경성 제약)
+      center_cross_groups: [2]      # 중앙선을 넘어도 감점 없는 장애물 그룹 (2 = 두 번째). 실선은 항상 금지
+      center_cross_extra: 1.0       # 허용 시 차체가 중앙선을 넘어도 되는 최대 거리 (m)
+      lane_tolerance: 0.02          # 차체 모서리(요각 포함)의 차선 판정 허용 오차 (m)
+
+    perception:
+      detect_range: 15.0            # 인지 시작 거리 (회피 개시 거리 아님)
+      roi_x: [0.5, 20.0]
+      roi_y: [-3.0, 3.0]
+      ground_z: [0.10, 0.90]
+      cluster_eps: 0.25             # 밀착된 콘 3개는 한 클러스터로 나온다 -> 코드가 폭으로 개수를 정해 분리
+      min_pts_at_5m: 15             # 거리 제곱 반비례로 스케일
+      cone_diameter: 0.45
+      cone_height: 0.80
+      width_ratio_min: 0.5
+      width_ratio_max: 1.5
+      self_box: [-0.5, 2.7, 0.8]    # 자기 차체 제외 [x_min, x_max, |y|] (base_link). GPS 마스트가 x=2.5 m
+      tall_reject_margin: 0.20      # 콘 높이보다 이만큼 더 높은 물체가 같은 자리에 있으면 콘 아님 (수풀/기둥)
+      top_check_range: 10.0         # 이 거리 안에서는 콘 꼭대기 근처까지 점이 있어야 함
+      top_min_below: 0.30           # 꼭대기가 (cone_height - 이 값) 보다 낮으면 콘 아님 (낮은 수풀)
+      row_pitch_ratio: 1.1          # 콘 줄의 실제 피치 / 지름 (0919 백 실측: 3개 줄 = 1.52 m, 콘 사이 틈 8 cm)
+      max_cones_per_cluster: 4      # 붙어 있는 콘 열로 인정하는 최대 개수 (초과 = 벽)
+      confirm_frames: 3
+      miss_tolerance: 8
+      track_filter_alpha: 0.4
+      track_match_distance: 0.8
+      pair_group_window: 1.5        # 종방향. 한 쌍으로 묶는 범위
+      show_rejected: false          # true: 콘 줄로 인정 안 된 트랙(수풀 등)도 RViz 에 회색으로 표시 (디버그)
+      deskew: true
+      point_time_field: t           # Ouster: t (ns). Velodyne: time (s) -> point_time_scale 1.0
+      point_time_scale: 1.0e-9
+
+    planning:
+      lateral_margin: 0.30
+      plan_length_min: 4.0
+      plan_length_max: 12.0
+      plan_length_step: 0.5
+      offset_step: 0.05
+      offset_ladder_max: 6          # 오프셋 확장 단계 수 상한. 범위가 넓으면 간격을 키운다 (10 Hz 주기 보장)
+      return_length: 5.0
+      clear_margin: 0.70
+      transit_threshold_gap: 12.0   # 이보다 좁으면 TRANSIT, 넓으면 복귀 후 재회피
+      sample_step: 0.1
+      min_clearance: 0.0            # 3원 근사 기준 채택 하한
+      clearance_bucket: 0.05        # 이 이하의 여유 차이는 동률 -> 더 완만한 경로 선택
+      transit_center_offsets: [0.0, -0.25, 0.25, -0.5, 0.5]
+      entry_end_step: 0.25
+
+    replan:
+      enabled: true
+      period: 0.2
+      pos_threshold: 0.15
+      commit_distance: 2.0          # 미터 절댓값 (앞범퍼 ~ 담당 쌍)
+      offset_filter_alpha: 0.3
+      offset_tolerance: 0.03
+
+    control:
+      rate_hz: 50.0
+      k_stanley: 1.2
+      k_soft: 0.5
+      k_heading: 1.0
+      latency_compensation: 0.60    # 조향 총 지연 = 순수지연 0.11 + 작은 조향 시상수 0.49 (2026-09-24 실측)
+                                    # 시뮬레이터 스윕에서 이 값이 최적 (0.3 -> 0.147 m, 0.6 -> 0.107 m, 0.9 -> 0.119 m)
+                                    # 순수지연만 넣으면 횡오차가 5배로 커지고 게인을 올리면 발산한다
+                                    # 펌웨어 MAX_STEP_HALF_PERIOD_US 를 200 -> 100 us 로 낮추면 0.35 로 줄일 수 있다
+      # 조향/속도 지령 단위. 기존 ros_can_bridge(/target_angle) 는 값 x angle_scale 을 0x120 에 그대로 싣는다
+      # -> 출력축 각도를 기대하므로 output_shaft. 우리 can_bridge 를 쓸 때도 같은 값을 보고 변환하므로 그대로 두면 된다
+      steer_cmd_unit: output_shaft  # output_shaft: 바퀴각 x output_ratio | wheel: 바퀴각 그대로
+      speed_cmd_unit: kmh           # kmh: /target_speed 를 km/h 로 발행 (기존 브리지 기준) | mps
+      steer_track_err_max_deg: 5.0
+      steer_track_err_time: 0.5
+      path_timeout: 0.5
+      odom_timeout: 0.3
+
+    speed:
+      target: 0.8333333333333334    # m/s = 3.0 km/h (/target_speed 로는 km/h 로 나간다)
+      max_clamp: 1.67               # = 6.0 km/h. 경로가 더 빨리 가도 된다고 해도 여기서 자른다
+      auto_from_geometry: true      # 경로가 요구하는 조향 각속도로 속도 자동 결정
+      rtk_degraded: 0.5
+      fault: 0.5                    # CAN 끊김 / 조향 추종 오차 과다 시
+
+    failure:
+      never_stop: true
+      fail_speed_step: 0.2
+      fail_min_speed: 0.4
+
+    termination:
+      pass_miss_frames: 5           # 회피 종료: YOLO 연속 미검출 (+ 기하 조건은 자동 계산)
+      done_miss_frames: 10          # DONE: 마지막 쌍 이후 장애물 연속 미검출 프레임
+      done_sensor_mode: either      # either: YOLO 또는 LiDAR | both | yolo | lidar
+
+    mission:
+      # 출발 트리거 없음: 런치하는 순간 주행을 시작한다.
+      auto_start: true              # false 로 두면 /cone_avoidance/start (std_msgs/Bool) 를 받을 때까지 대기
+      require_zero_done: false      # true 로 두면 영점 완료(0x202) 를 아래 시간까지 기다린 뒤 출발
+      zero_wait_timeout: 3.0        # (require_zero_done: true 일 때만 의미 있음)
+      expected_pairs: 2
+      pair_min_cones: 3             # YOLO 개시 시 그룹에 확정돼 있어야 할 콘 수
+      yolo_trigger_frames: 3        # 회피 개시: YOLO 연속 검출 프레임
+      yolo_timeout: 0.5
+      lidar_fallback_margin: 1.0    # YOLO 가 개시를 못 하면 이 여유를 두고 LiDAR 거리로 개시
+      trigger_distance_min: 12.0    # 회피 개시 최소 거리 (m). 계산된 필요 거리와 이 값 중 큰 쪽에서 시작한다
+                                    # 일찍 시작할수록 진입이 완만하고, 정차 상태에서도 경로를 눈으로 확인할 수 있다
+      # 규정: 그룹 i 가 붙어 있는 차선 경계 (left = 중앙선, right = 실선). 통과는 반대쪽.
+      # 콘 줄의 바깥 끝 = 그 경계로 보고 차선 중앙을 추정한다 -> 기준선 누적 오차(30 m 에서 1도 = 0.5 m)와 무관
+      group_sides: [left, right]
+      cones_per_group: 3
+      row_min_cones: 2              # 이 개수 이상 나란히 붙어 있어야 장애물 그룹
+                                    # 3 으로 올리면 안 됨: 먼 그룹은 2개만 잡히기도 하고, 그룹을 놓치면 번호가 밀려 반대로 피한다
+      row_max_cones: 4              # 이보다 많이 이어진 무리는 콘 줄이 아님 (붙은 잡동사니는 잘라냄)
+      row_along_tol: 0.60           # 한 줄의 콘들이 진행방향으로 벌어질 수 있는 최대 거리
+      # 0919 백 실측: 진짜 콘 줄은 도로와 82~88도, 주변 5.5 m 이상 비어 있음. 수풀은 49~85도, 이웃 0.6~0.8 m
+      row_angle_tol: 25.0           # 줄 방향이 진행방향의 수직에서 벗어날 수 있는 각도 (deg)
+      row_clear_radius: 1.5         # 콘 줄 주변에서 다른 물체를 세는 반경 (갓길/반대차선 쪽은 안 셈)
+      row_lateral_max: 2.5          # 줄의 안쪽 끝이 차량 진행선에서 이보다 멀면 차선 밖 풀숲 (가까운 거리 기준)
+      row_heading_tol: 10.0         # 먼 줄일수록 yaw 오차 여유로 허용폭 증가: +거리*tan(이 각도)
+      row_clutter_min_partial: 2    # 콘이 cones_per_group 보다 적게 보이는 줄은 이웃 이만큼부터 수풀
+      row_clutter_min: 3            # 그 안에 이 개수 이상 빽빽하면 수풀 (실측: 진짜 줄 0개, 수풀 4~5개)
+                                    # 1~2개로는 지우지 않는다: 차로 위 물체는 그 자체가 장애물이라 줄을 지우면 둘 다 안 보임
+      row_dup_radius: 0.35          # 이보다 가까운 트랙은 같은 콘의 중복으로 봄
+      row_gap_max: 0.80             # 줄 안에서 이웃 콘 중심 간 최대 간격
+      row_len_slack: 0.60           # 줄 길이 상한 = cones_per_group * 지름 + 이 값
+      lane_gate_loose: 1.5          # 차선이 확정되기 전의 게이트 여유 (기준선 드리프트 허용)
+      lane_shift_max: 1.5           # 첫 그룹이 가리키는 차선 중앙이 기준선에서 이 이상 벗어나면 잡음으로 버림
+      lane_consistency: 0.8         # 다음 그룹이 가리키는 차선 중앙이 이전과 이 이상 다르면 잡음으로 버림
+      min_intrusion: 0.40           # 차선 안으로 이만큼 이상 들어온 것만 장애물 그룹으로 센다 (선에 걸친 수풀 배제)
+      lane_gate_margin: 0.50        # 차선 확정 후: 차선 밖 이만큼까지의 콘만 인정 (길가 수풀 배제)
+      start_lateral_offset: 0.0
+
+    can:
+      interface: can0
+      tx_rate_hz: 50.0
+      speed_scale: 100.0            # km/h x 100
+      rx_timeout: 0.2
+      cmd_timeout: 0.3
+      auto_zero_request: false      # 기동 시 영점 명령(0x130) 을 보내지 않는다. CAN 과 영점은 외부에서 미리 처리
+                                    # (true 로 두면 0x202 를 받을 때까지 1 초마다 0x130 을 보낸다)
+      on_cmd_timeout: stop          # 제어 노드가 죽었을 때: stop | hold
+
+    topics:
+      odometry: /ekf/odometry
+      pointcloud: /ouster/points
+      navsat: /gps/fix
+      yolo_count: /yolo/cone_count  # std_msgs/Int32, 추론 프레임마다 콘 개수 (0 포함)
+      start: /cone_avoidance/start
+      cones: /cone_avoidance/cones
+      raw_cones: /cone_avoidance/raw_cones
+      cone_markers: /cone_avoidance/cone_markers
+      mission_markers: /cone_avoidance/mission_markers
+      held_points: /cone_avoidance/held_points   # RViz 전용. 백 일시정지 중에도 유지
+      lidar_raw_count: /cone_avoidance/lidar_raw_count
+      path: /cone_avoidance/path
+      speed_target: /cone_avoidance/speed_target
+      mission_status: /cone_avoidance/mission_status
+      steer_cmd: /target_angle      # 조향 지령 (단위는 control.steer_cmd_unit)
+      speed_cmd: /target_speed      # 속도 지령 (단위는 control.speed_cmd_unit)
+      control_status: /cone_avoidance/control_status
+      steer_feedback: /cone_avoidance/steer_feedback
+      wheel_speed: /cone_avoidance/wheel_speed
+      zero_request: /cone_avoidance/zero_request
+      zero_done: /cone_avoidance/zero_done
+      can_status: /cone_avoidance/can_status
+
+    logging:
+      enabled: true
+      path: ./logs
+
+    # 오프라인 시뮬레이터 전용 (ROS 노드는 읽지 않음)
+    sim:
+      dt: 0.02
+      # (s, d) 평탄화. 1차: 왼쪽 중앙선 3개 밀착, 2차: 오른쪽 실선 3개 밀착
+      cones: [10.0, 1.675, 10.0, 1.225, 10.0, 0.775, 15.0, -0.775, 15.0, -1.225, 15.0, -1.675]
+      actual_max_rate_deg_s: 0.0    # 0 = steering.max_rate_deg_s 사용. 값을 넣으면 그 값이 차량의 실제 한계
+      steer_delay: 0.11             # 실측(2026-09-24 steer_probe)
+      steer_err_sat_rad: 0.147      # 실측: 작은 조향 시상수 0.49 s. 작은 조향은 최저 스텝속도(200us)에 묶인다
+      accel_limit: 0.8
+      pos_noise_std: 0.015
+      yaw_noise_std_deg: 0.3
+      odom_rate_hz: 50.0
+      cone_noise_std_near: 0.03
+      cone_noise_std_per_m: 0.006
+      cone_detect_prob_near: 0.98
+      cone_detect_prob_far: 0.6
+      yolo_range: 12.0
+      yolo_rate_hz: 8.0
+      yolo_fov_deg: 70.0
+      init_d_std: 0.05
+      init_yaw_std_deg: 1.0
+      course_length: 35.0
