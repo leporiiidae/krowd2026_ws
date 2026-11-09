@@ -1547,7 +1547,7 @@ class MissionNode(Node):
         self.tracks = []
         self.rtk_status = None
         self.rtk_time = -math.inf
-        self.faults = {"control": False, "can": False}
+        self.faults = {"control": False}
         self.log = CsvLogger(self.cfg.logging.path, "plan", self.cfg.logging.enabled)
         latched = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL)
 
@@ -1559,7 +1559,6 @@ class MissionNode(Node):
         self.create_subscription(Bool, t.start, self.on_start, 10)
         self.create_subscription(NavSatFix, t.navsat, self.on_navsat, qos_profile_sensor_data)
         self.create_subscription(String, t.control_status, lambda m: self.on_status("control", m), 10)
-        self.create_subscription(String, t.can_status, lambda m: self.on_status("can", m), 10)
         self.path_pub = self.create_publisher(Float64MultiArray, t.path, 10)
         self.path_viz_pub = self.create_publisher(Path, t.path + "_viz", 10)
         self.speed_pub = self.create_publisher(Float32, t.speed_target, 10)

@@ -35,8 +35,6 @@ def generate_launch_description():
         DeclareLaunchArgument("overrides", default_value=config),
         DeclareLaunchArgument("use_sim_time", default_value="false",
                               description="true when replaying a rosbag with --clock"),
-        DeclareLaunchArgument("use_can", default_value="true",
-                              description="false for bag replay or when another CAN bridge runs"),
         DeclareLaunchArgument("use_rviz", default_value="true"),
         DeclareLaunchArgument("rviz_config", default_value=os.path.join(
             share, "rviz", "cone_avoidance.rviz")),
@@ -46,7 +44,6 @@ def generate_launch_description():
         node("mission", "cone_mission"),
         node("control", "cone_control"),
         node("pointcloud_hold", "cone_pointcloud_hold", condition=IfCondition(use_rviz)),
-        node("can_bridge", "cone_can", condition=IfCondition(LaunchConfiguration("use_can"))),
         Node(package="rviz2", executable="rviz2", name="cone_avoidance_rviz", output="screen",
              arguments=["-d", LaunchConfiguration("rviz_config")], parameters=[common],
              additional_env={"LIBGL_ALWAYS_SOFTWARE": PythonExpression(

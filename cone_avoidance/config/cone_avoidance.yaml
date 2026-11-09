@@ -26,13 +26,10 @@
     steering:
       output_ratio: 6.8             # 실측(2026-09-19). 0x201 2.71 rad = 바퀴 21.5도(우), 2.75 rad = 25.0도(좌)
                                     # -> 비가 우 7.23 / 좌 6.29 로 비대칭. 평균 6.8 사용 (Stanley 가 폐루프라 ±8% 는 흡수)
-                                    # 0 이면 can_bridge 가 기동을 거부한다 (미설정 방지)
+                                    # 외부 ros_to_can_node 가 기대하는 출력축 각도로 변환할 때 사용
       output_limit_rad: 2.5         # 펌웨어 ANGLE_LIMIT_RAD 과 일치 (2026-09-21 펌웨어에서 1.7453 -> 2.5 로 상향)
                                     # 2.5 / 6.8 = 0.368 rad = 21.1도 이므로 이제 기계적 끝단(21도)이 한계가 된다
                                     # 기계적 끝단은 0x201 로 2.71(우) / 2.75(좌) 에서 걸렸다 -> 2.5 는 그 안쪽
-      angle_scale: 100              # 펌웨어 ANGLE_SCALE 과 반드시 일치. 현재 펌웨어 = 100 이므로 100
-                                    # 변환비가 6.8 이라 CAN 한 칸 = 바퀴 0.084도 (5 m 에 1.4 cm) -> 1000 으로 올릴 실익 없음
-                                    # 펌웨어를 1000 으로 바꾸면 여기도 1000. 불일치하면 can_status 에 angle_scale_mismatch
       max_rate_deg_s: 17.0          # 실측(2026-09-24, 펌웨어 MIN_STEP_HALF_PERIOD_US 하향 후) 바퀴 기준
                                     # 계획기는 이 값의 70% 로 경로를 만든다. 틀리면 따라갈 수 없는 경로가 나온다
       rate_use_ratio: 0.7           # 탈조 여유
@@ -124,8 +121,7 @@
                                     # 시뮬레이터 스윕에서 이 값이 최적 (0.3 -> 0.147 m, 0.6 -> 0.107 m, 0.9 -> 0.119 m)
                                     # 순수지연만 넣으면 횡오차가 5배로 커지고 게인을 올리면 발산한다
                                     # 펌웨어 MAX_STEP_HALF_PERIOD_US 를 200 -> 100 us 로 낮추면 0.35 로 줄일 수 있다
-      # 조향/속도 지령 단위. 기존 ros_can_bridge(/target_angle) 는 값 x angle_scale 을 0x120 에 그대로 싣는다
-      # -> 출력축 각도를 기대하므로 output_shaft. 우리 can_bridge 를 쓸 때도 같은 값을 보고 변환하므로 그대로 두면 된다
+      # 조향/속도 지령 단위. 외부 ros_to_can_node 의 /target_angle 은 출력축 각도를 기대한다.
       steer_cmd_unit: output_shaft  # output_shaft: 바퀴각 x output_ratio | wheel: 바퀴각 그대로
       speed_cmd_unit: kmh           # kmh: /target_speed 를 km/h 로 발행 (기존 브리지 기준) | mps
       steer_track_err_max_deg: 5.0
@@ -188,16 +184,6 @@
       lane_gate_margin: 0.50        # 차선 확정 후: 차선 밖 이만큼까지의 콘만 인정 (길가 수풀 배제)
       start_lateral_offset: 0.0
 
-    can:
-      interface: can0
-      tx_rate_hz: 50.0
-      speed_scale: 100.0            # km/h x 100
-      rx_timeout: 0.2
-      cmd_timeout: 0.3
-      auto_zero_request: false      # 기동 시 영점 명령(0x130) 을 보내지 않는다. CAN 과 영점은 외부에서 미리 처리
-                                    # (true 로 두면 0x202 를 받을 때까지 1 초마다 0x130 을 보낸다)
-      on_cmd_timeout: stop          # 제어 노드가 죽었을 때: stop | hold
-
     topics:
       odometry: /ekf/odometry
       pointcloud: /ouster/points
@@ -218,9 +204,7 @@
       control_status: /cone_avoidance/control_status
       steer_feedback: /cone_avoidance/steer_feedback
       wheel_speed: /cone_avoidance/wheel_speed
-      zero_request: /cone_avoidance/zero_request
       zero_done: /cone_avoidance/zero_done
-      can_status: /cone_avoidance/can_status
 
     logging:
       enabled: true

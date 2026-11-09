@@ -27,10 +27,9 @@ from typing import List, Optional
 import numpy as np
 import yaml
 
-from .can_node import decode_steer, encode_steer
 from .mission_node import DONE, Mission, clearance_at_pose
 from .params import Config, deep_merge, unflatten
-from .control_node import StanleyController
+from .control_node import StanleyController, from_cmd_units
 from .perception_node import ConeTracker, RowFilter
 
 
@@ -129,11 +128,9 @@ class Simulator:
             out = None
             if mission.ref is not None:
                 out = stanley.step(mission.ref, mission.path, meas[0], meas[1], meas[2], meas[3], dt)
-                # What the actuator really receives: the wheel angle after the CAN
-                # conversion and int16 quantisation of 0x120.
-                st = cfg.steering
-                data, _, _ = encode_steer(out.delta, st.output_ratio, st.output_limit_rad, st.angle_scale)
-                delta_cmd = decode_steer(data, st.output_ratio, st.angle_scale)[0]
+                # The external CAN bridge is outside this package.  The plant receives
+                # the controller's bounded road-wheel command directly.
+                delta_cmd = out.delta
 
             # --- plant -----------------------------------------------------
             steer_queue.append(delta_cmd)
@@ -362,7 +359,7 @@ if __name__ == "__main__":
 
 """Hardware-free stand-in for the vehicle: bicycle plant + synthetic LiDAR / YOLO.
 
-Replaces can_node + sensors so the full ROS graph (perception -> mission ->
+Replaces the external vehicle/CAN interface and sensors so the full ROS graph (perception -> mission ->
 control) can be exercised on a desk:
 
     ros2 launch cone_avoidance sim.launch.py
@@ -382,7 +379,6 @@ from geometry_msgs.msg import TransformStamped
 from std_msgs.msg import Bool, Float32, Header, Int32
 from tf2_ros import TransformBroadcaster
 
-from .can_node import from_cmd_units
 from .perception_node import synth_scan
 from .params import DEFAULTS
 from .ros_common import run_node, declare_config

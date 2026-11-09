@@ -30,8 +30,7 @@
 cone_avoidance/
   perception_node.py  LiDAR 검출 + 디스큐 + 전역 콘 추적 + 쌍 그룹핑 + ROS 입출력
   mission_node.py     Frenet/5차 경로 + swept 검사 + 계획기 + FSM + ROS 입출력
-  control_node.py     Stanley/지연 보상 + 제어 ROS 입출력
-  can_node.py         CAN 코덱 + SocketCAN ROS bridge
+  control_node.py     Stanley/지연 보상 + 외부 ROS-CAN 노드용 제어 토픽 출력
   params.py           기본값 + 파생값(collision_width, d_limit ...) — YAML과 1:1
   ros_common.py       공통 ROS 파라미터·Odometry·노드 실행 도우미
   csv_logger.py       공통 CSV 로거
@@ -42,15 +41,14 @@ launch/cone_avoidance.launch.py   실차
 launch/sim.launch.py              하드웨어 없이 전체 ROS 그래프 (합성 포인트클라우드)
 launch/bag.launch.py              백 재생 + RViz (CAN 없음)
 rviz/cone_avoidance.rviz
-test/                             pytest 82개
+test/                             pytest 79개
 ```
 
 | 노드 | 주기 | 입력 | 출력 |
 |---|---|---|---|
 | `perception` | LiDAR 프레임 | `/ouster/points`, `/ekf/odometry` | `cones`(확정 트랙), `raw_cones`, RViz 마커 |
-| `mission` | 10 Hz | `cones`, `raw_cones`, `/yolo/cone_count`, `zero_done`, `start`, `/gps/fix` | `path`(기준선+5차 계수), `speed_target`, `mission_status`(JSON) |
-| `control` | 50 Hz 독립 타이머 | `path`, `speed_target`, `/ekf/odometry`, `steer_feedback` | `steer_cmd`(바퀴 rad, 좌+), `speed_cmd`(m/s) |
-| `can_bridge` | 50 Hz | `steer_cmd`, `speed_cmd` | CAN 0x110/0x120/0x130, `steer_feedback`, `wheel_speed`, `zero_done` |
+| `mission` | 10 Hz | `cones`, `raw_cones`, `/yolo/cone_count`, 선택적 `zero_done`, `start`, `/gps/fix` | `path`(기준선+5차 계수), `speed_target`, `mission_status`(JSON) |
+| `control` | 50 Hz 독립 타이머 | `path`, `speed_target`, `/ekf/odometry`, `steer_feedback` | `/target_angle`(출력축 rad), `/target_speed`(km/h) |
 
 YOLO 는 별도 프로세스이고 **`std_msgs/Int32` 콘 개수**만 넘기면 된다(`/yolo/cone_count`, 추론
 프레임마다, 0 포함). 제어 루프와 프로세스가 달라 추론 지연이 제어 주기에 영향을 주지 않는다.
@@ -77,11 +75,10 @@ ros2 launch cone_avoidance bag.launch.py bag:=/mnt/c/Users/tk205/Downloads/0919_
 #   play:=false    백은 다른 터미널에서 직접: ros2 bag play <bag> --clock
 #   use_rviz:=false  RViz 없이
 
-# 3) 실차 — 런치하면 바로 주행한다 (mission.auto_start: true)
-pip install python-can                                         # can_bridge 만 필요
+# 3) 실차 — 외부 ros_to_can_node / can_to_ros_node를 먼저 실행하고, 런치하면 바로 주행한다
+#    (mission.auto_start: true)
 ros2 launch cone_avoidance cone_avoidance.launch.py
 
-#   차를 움직이지 않고 경로만 확인: use_can:=false (CAN 으로 아무것도 안 나감)
 #   출발 명령을 받고 출발시키려면: mission.auto_start 를 false 로 두고
 ros2 topic pub --once /cone_avoidance/start std_msgs/Bool "data: true"
 
@@ -140,9 +137,9 @@ PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python3 -m pytest test -q
 (`mission.auto_start: true`, `require_zero_done: false`). 외부에서 트리거를 걸려면 둘 중 하나:
 `auto_start: false` 로 두고 `/cone_avoidance/start` 를 쏘거나, 런치 자체를 원하는 시점에 실행.
 
-**CAN 은 외부에서 준비한다.** 노드는 인터페이스를 올리지 않고(`ip link set can0 up` 은 미리),
-기동 시 영점 명령(`0x130`)도 보내지 않는다(`can.auto_zero_request: false`). 노드가 CAN 에 하는 일은
-`0x110`/`0x120` 송신과 `0x200`/`0x201`/`0x202` 수신뿐이다. 차를 세워 둔 채 경로만 보려면 `use_can:=false`.
+**CAN 통신은 이 패키지의 역할이 아니다.** 기존 `ros_to_can_node`와 `can_to_ros_node`를 별도로 실행한다.
+이 패키지는 `/target_angle`과 `/target_speed`만 발행하고, 외부 노드가 제공하는
+`steer_feedback`, `wheel_speed`, 선택적인 `zero_done` ROS 토픽만 구독한다.
 
 ## 사양서와 다르게 한 부분 (결정 사항)
 
@@ -178,12 +175,6 @@ PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python3 -m pytest test -q
    2.5 / 6.8 = 21.1° > 기계적 끝단 21° 이므로, 이제 한계는 기계가 정한다(`steer_limited_by: mechanical`).
    최소 회전반경 6.38 m → **4.36 m**. 펌웨어 값을 바꾸면 YAML `output_limit_rad` 도 같이 바꿀 것.
    90° 를 넘는 바퀴각은 `tan(δ)` 가 음수가 되어 조향 한계가 뒤집히므로 기동 시 거부한다.
-6. **`angle_scale: 100` — 펌웨어 그대로 둔다.** 처음엔 1000 을 권했지만 그건 출력축과 바퀴가 1:1 이라는
-   전제였다. 실제 변환비가 6.8 이라 100 에서도 CAN 한 칸 = **바퀴 0.084°**(5 m 주행 시 횡방향 1.4 cm)
-   로 충분하다. 시뮬레이터에 0x120 인코딩/양자화를 넣고 40회 비교 — 100 과 1000 의 콘 여유·횡오차가
-   동일했다. PC 와 펌웨어가 다르면 `can_bridge` 가 피드백/지령 비로 감지해 `angle_scale_mismatch`
-   폴트를 올린다(감속). 펌웨어를 1000 으로 바꾼다면 YAML 도 같이 1000 으로.
-
 그 외 구현 중 추가한 것:
 - 밀착된 콘 3개는 한 클러스터로 나온다 → 줄 방향(주성분) 길이로 개수를 정하고 1-D k-means 로 분리.
   서로 가려 보이는 면이 적은 콘은 중심이 틀어질 수 있어, 양 끝 콘을 클러스터 끝점까지 밀어 **줄의 폭을
@@ -194,8 +185,6 @@ PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python3 -m pytest test -q
 - 오프셋 저역통과는 재계획 때만 전진하므로, "필터값이 원시값과 3 cm 이상 다르면 재계획 계속" 조건 추가.
   콘이 쌍에 새로 합류하면(스텝 변화) 필터를 거치지 않고 즉시 반영.
 - 확정된 트랙은 삭제하지 않는다(정적 콘 + RTK). 앞에서 놓치면 기존 추정 유지, 뒤로 가면 정상.
-- `can.on_cmd_timeout: stop` — 제어 **프로세스가 죽은** 경우만 속도 0. 계획 실패·센서 폴트는 사양대로 감속만 한다.
-  대회 규정상 이것도 안 되면 `hold` 로.
 
 ## 시뮬레이터 결과 (실측 조향 모델, 시드 40개)
 
@@ -289,13 +278,12 @@ WSL 에서는 GPU OpenGL 경로에서 RViz 가 약 10 초 뒤 세그폴트한다
 ## 로그
 
 `logging.path` 아래에 실행마다 `control_*.csv`(50 Hz: pose, Frenet, FSM, 목표 오프셋 원시/필터, 계획 L,
-`e_y`, heading 오차, 조향 지령 바퀴각/출력축각/CAN raw, `0x201` 실측, 추종 오차, 속도 지령/실측,
+`e_y`, heading 오차, 조향 지령 바퀴각/출력축각, 조향 실측, 추종 오차, 속도 지령/실측,
 swept clearance 두 값, 폴트), `plan_*.csv`(10 Hz: 계획 이벤트, `v_allow`, `v_allow_analytic`),
 `cones_*.csv`(LiDAR 프레임마다 원시 검출 + 트랙 상태).
 
 ## 메인 컴퓨터로 옮길 때
 
-패키지 폴더만 복사 → `colcon build`. 의존성은 ROS Humble 기본 + `numpy`, `scipy`, `pyyaml`,
-(`can_bridge` 만) `python-can`. `topics.*` 를 그쪽 토픽명에 맞추고, 기존 `ros_to_can_node` /
-`can_to_ros_node` 와 **동시에 띄우지 말 것**(같은 CAN ID 로 송신한다). 기존 브리지를 계속 쓰려면
-`use_can:=false` 로 띄우고 `steer_cmd` × `output_ratio` 를 `/target_angle` 로 넘기는 어댑터가 필요하다.
+패키지 폴더만 복사 → `colcon build`. 의존성은 ROS Humble 기본 + `numpy`, `scipy`, `pyyaml`이다.
+기존 `ros_to_can_node` / `can_to_ros_node`를 별도로 실행하고, 필요하면 `topics.*`를 그 노드의 토픽명에
+맞춘다. 기본 출력은 `/target_angle`(출력축 rad)과 `/target_speed`(km/h)라서 기존 브리지 규격과 같다.

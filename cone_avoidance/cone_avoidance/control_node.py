@@ -65,6 +65,33 @@ class StanleyController:
         delta = min(max(delta, self.delta_prev - max_step), self.delta_prev + max_step)
         self.delta_prev = delta
         return StanleyOutput(delta, e_y, theta_e, s, d, d_path, raw)
+
+
+MPS_TO_KMH = 3.6
+
+
+def wheel_to_output(wheel_rad: float, cfg) -> float:
+    """Convert road-wheel angle to the output-shaft angle expected by /target_angle."""
+    out = wheel_rad * cfg.steering.output_ratio
+    limit = cfg.steering.output_limit_rad
+    return max(-limit, min(limit, out))
+
+
+def to_cmd_units(wheel_rad: float, speed_mps: float, cfg):
+    """Convert controller units to the external ROS-to-CAN bridge topic units."""
+    if cfg.control.steer_cmd_unit == "wheel":
+        angle = max(-cfg.max_wheel_steer, min(cfg.max_wheel_steer, wheel_rad))
+    else:
+        angle = wheel_to_output(wheel_rad, cfg)
+    speed = speed_mps * MPS_TO_KMH if cfg.control.speed_cmd_unit == "kmh" else speed_mps
+    return angle, speed
+
+
+def from_cmd_units(angle: float, speed: float, cfg):
+    """Inverse conversion used only by the synthetic ROS vehicle."""
+    wheel = angle if cfg.control.steer_cmd_unit == "wheel" else angle / cfg.steering.output_ratio
+    speed_mps = speed / MPS_TO_KMH if cfg.control.speed_cmd_unit == "kmh" else speed
+    return wheel, speed_mps
 """Stanley control node (50 Hz) — also the per-cycle logger."""
 
 
@@ -76,7 +103,6 @@ from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
 from std_msgs.msg import Float32, Float64MultiArray, String
 
-from .can_node import encode_steer, to_cmd_units
 from .csv_logger import CsvLogger
 from .ros_common import run_node, OdomState, declare_config
 
@@ -165,8 +191,7 @@ class ControlNode(Node):
             "fault": bool(fault), "steer_tracking_fault": bool(steer_fault),
             "odom_timeout": bool(active and not odom_ok), "track_err": track_err})))
 
-        ratio = cfg.steering.output_ratio
-        _, out_rad, raw = encode_steer(delta, ratio, cfg.steering.output_limit_rad, cfg.steering.angle_scale)
+        out_rad = wheel_to_output(delta, cfg)
         m = self.mission
         self.log.write({
             "t": now, "rtk_ok": m.get("rtk_ok"), "x": self.odom.x, "y": self.odom.y,
@@ -176,7 +201,7 @@ class ControlNode(Node):
             "d_target_filtered": m.get("cur_d_target"), "plan_L": m.get("plan_L"),
             "d_path": out.d_path if out else math.nan, "e_y": out.e_y if out else math.nan,
             "theta_e": out.theta_e if out else math.nan,
-            "delta_wheel": delta, "delta_output": out_rad, "can_raw": raw,
+            "delta_wheel": delta, "delta_output": out_rad,
             "steer_cmd_published": angle_out, "speed_cmd_published": speed_out,
             "steer_fb_wheel": self.steer_fb, "track_err": track_err,
             "v_cmd": speed, "wheel_speed": self.wheel_speed,

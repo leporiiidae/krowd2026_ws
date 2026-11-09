@@ -39,7 +39,6 @@ DEFAULTS: Dict[str, Any] = {
     "steering": {
         "output_ratio": 6.8,           # 실측(2026-09-19): 엔코더 2.71 rad = 바퀴 21.5도, 2.75 rad = 바퀴 25.0도
         "output_limit_rad": 2.5,       # 펌웨어 ANGLE_LIMIT_RAD (2026-09-21: 1.7453 -> 2.5). 바퀴각 = 이 값/ratio
-        "angle_scale": 100,            # 펌웨어 ANGLE_SCALE 과 반드시 일치 (현재 펌웨어: 100)
         "max_rate_deg_s": 17.0,        # 실측(2026-09-24, 펌웨어 스텝주기 상향 후) 바퀴 기준
         "rate_use_ratio": 0.7,
         "curvature_use_ratio": 0.8,
@@ -130,10 +129,10 @@ DEFAULTS: Dict[str, Any] = {
         "k_soft": 0.5,
         "k_heading": 1.0,
         "latency_compensation": 0.60,  # 실측(2026-09-24): 순수지연 0.11 + 작은 조향 시상수 0.49
-        # 조향 지령을 무슨 단위로 내보낼지. 기존 ros_can_bridge(/target_angle) 는 출력축 각도를 기대한다
-        # (그 노드가 값 x angle_scale 을 그대로 0x120 에 싣는다). wheel 이면 바퀴 각도 그대로.
+        # 조향 지령을 무슨 단위로 내보낼지. 외부 ros_to_can_node(/target_angle)는
+        # 출력축 각도를 기대한다. wheel 이면 바퀴 각도 그대로 발행한다.
         "steer_cmd_unit": "output_shaft",   # output_shaft | wheel
-        "speed_cmd_unit": "kmh",            # kmh | mps (기존 ros_can_bridge 는 km/h)
+        "speed_cmd_unit": "kmh",            # kmh | mps (외부 ros_to_can_node는 km/h)
         "steer_track_err_max_deg": 5.0,
         "steer_track_err_time": 0.5,
         "path_timeout": 0.5,
@@ -193,16 +192,6 @@ DEFAULTS: Dict[str, Any] = {
         "lane_gate_margin": 0.50,      # 차선 밖 이만큼까지의 콘만 인정 (길가 수풀 배제)
         "start_lateral_offset": 0.0,   # 출발 시 차량 d (차선 중앙 기준)
     },
-    "can": {
-        "interface": "can0",
-        "tx_rate_hz": 50.0,
-        "speed_scale": 100.0,          # km/h x 100
-        "rx_timeout": 0.2,
-        "cmd_timeout": 0.3,
-        "auto_zero_request": False,    # 노드 기동 시 영점 명령(0x130) 을 보내지 않는다 (CAN 은 외부에서 준비)
-        # 제어 노드가 죽어 지령이 끊긴 경우: stop(속도 0) | hold(마지막 지령 유지)
-        "on_cmd_timeout": "stop",
-    },
     "topics": {
         "odometry": "/ekf/odometry",
         "pointcloud": "/ouster/points",
@@ -223,9 +212,7 @@ DEFAULTS: Dict[str, Any] = {
         "control_status": "/cone_avoidance/control_status",
         "steer_feedback": "/cone_avoidance/steer_feedback",
         "wheel_speed": "/cone_avoidance/wheel_speed",
-        "zero_request": "/cone_avoidance/zero_request",
         "zero_done": "/cone_avoidance/zero_done",
-        "can_status": "/cone_avoidance/can_status",
     },
     "sim": {
         "dt": 0.02,
