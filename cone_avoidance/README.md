@@ -1,8 +1,9 @@
 # cone_avoidance
 
 직선 도로의 정적 콘 그룹 2개를 지그재그로 회피하는 ROS 2 (Humble, Python) 패키지.
-`obstacle_avoidance_spec.md` 구현 + 2026-09-19 배치 변경 반영. 알고리즘은 전부 ROS 비의존 순수 파이썬이고, ROS 노드와
-오프라인 시뮬레이터가 **같은 코드·같은 YAML**을 쓴다.
+`obstacle_avoidance_spec.md` 구현 + 2026-09-19 배치 변경 반영.
+이 1109 버전은 학습과 전달을 쉽게 하기 위해 관련 알고리즘을 담당 ROS 노드 파일에 통합했다.
+오프라인 시뮬레이터와 테스트도 통합된 노드 파일의 동일한 구현을 사용한다.
 
 ## 코스 배치 (2026-09-19 기준)
 
@@ -27,23 +28,22 @@
 
 ```
 cone_avoidance/
-  params.py        기본값 + 파생값(collision_width, d_limit ...) — YAML 과 1:1 (테스트로 강제)
-  geometry.py      부호 규약, Frenet(직선), 5차 다항식, OffsetPath(구간 연결·C2 접합)
-  swept.py         후축 견인 적분으로 차체 yaw 계산 → 3원/사각형 clearance, 조향 요구량
-  planner.py       목표 오프셋, 진입/전이/복귀 탐색, 속도 자동 결정, 실패 사다리, 재계획
-  mission.py       FSM + 재계획 규칙(커밋, 종료점 고정, 오프셋 필터)
-  tracker.py       전역 좌표 콘 추적, 쌍 그룹핑
-  lidar.py         ROI → 지면 제거 → 단일링크 클러스터 → 붙은 쌍 분리 → 원통 중심 피팅, 디스큐
-  stanley.py       Stanley + 지연 보상
-  can_codec.py     CAN 프레임 인코딩/디코딩
+  perception_node.py  LiDAR 검출 + 디스큐 + 전역 콘 추적 + 쌍 그룹핑 + ROS 입출력
+  mission_node.py     Frenet/5차 경로 + swept 검사 + 계획기 + FSM + ROS 입출력
+  control_node.py     Stanley/지연 보상 + 제어 ROS 입출력
+  can_node.py         CAN 코덱 + SocketCAN ROS bridge
+  params.py           기본값 + 파생값(collision_width, d_limit ...) — YAML과 1:1
+  ros_common.py       공통 ROS 파라미터·Odometry·노드 실행 도우미
+  csv_logger.py       공통 CSV 로거
   sim.py           킥네마틱 시뮬레이터 + 몬테카를로
-  *_node.py        ROS 노드 (perception / mission / control / can_bridge / sim_vehicle)
+  sim_vehicle_node.py 합성 포인트클라우드를 발행하는 가상 차량 노드
+  pointcloud_hold_node.py / steer_probe_node.py / check_log.py  개발·진단 도구
 config/cone_avoidance.yaml
 launch/cone_avoidance.launch.py   실차
 launch/sim.launch.py              하드웨어 없이 전체 ROS 그래프 (합성 포인트클라우드)
 launch/bag.launch.py              백 재생 + RViz (CAN 없음)
 rviz/cone_avoidance.rviz
-test/                             pytest 72개
+test/                             pytest 82개
 ```
 
 | 노드 | 주기 | 입력 | 출력 |

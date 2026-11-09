@@ -3,9 +3,9 @@ import math
 import numpy as np
 import pytest
 
-from cone_avoidance.lidar import deskew, detect_cones, min_points, synth_scan
+from cone_avoidance.perception_node import deskew, detect_cones, min_points, synth_scan
 from cone_avoidance.params import Config
-from cone_avoidance.tracker import ConeTracker, RowFilter, Track, find_rows, group_pairs
+from cone_avoidance.perception_node import ConeTracker, RowFilter, Track, find_rows, group_pairs
 
 CFG = Config()
 

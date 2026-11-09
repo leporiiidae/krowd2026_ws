@@ -27,12 +27,11 @@ from typing import List, Optional
 import numpy as np
 import yaml
 
-from .can_codec import decode_steer, encode_steer
-from .mission import DONE, Mission
+from .can_node import decode_steer, encode_steer
+from .mission_node import DONE, Mission, clearance_at_pose
 from .params import Config, deep_merge, unflatten
-from .stanley import StanleyController
-from .swept import clearance_at_pose
-from .tracker import ConeTracker, RowFilter
+from .control_node import StanleyController
+from .perception_node import ConeTracker, RowFilter
 
 
 @dataclass

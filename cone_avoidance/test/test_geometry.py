@@ -3,7 +3,7 @@ import math
 import numpy as np
 import pytest
 
-from cone_avoidance.geometry import (QUINTIC_MAX_D1, QUINTIC_MAX_D2, QUINTIC_MAX_D3, OffsetPath,
+from cone_avoidance.mission_node import (QUINTIC_MAX_D1, QUINTIC_MAX_D2, QUINTIC_MAX_D3, OffsetPath,
                                      QuinticSegment, ReferenceLine, wrap)
 
 

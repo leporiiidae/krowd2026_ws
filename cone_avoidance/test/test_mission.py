@@ -2,7 +2,7 @@ import math
 
 import pytest
 
-from cone_avoidance.mission import CRUISE, DONE, IDLE, READY, RETURN, TRANSIT, Mission
+from cone_avoidance.mission_node import CRUISE, DONE, IDLE, READY, RETURN, TRANSIT, Mission
 from cone_avoidance.params import Config, deep_merge
 from cone_avoidance.sim import Simulator
 

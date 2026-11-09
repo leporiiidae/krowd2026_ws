@@ -21,8 +21,8 @@ from geometry_msgs.msg import TransformStamped
 from std_msgs.msg import Bool, Float32, Header, Int32
 from tf2_ros import TransformBroadcaster
 
-from .can_codec import from_cmd_units
-from .lidar import synth_scan
+from .can_node import from_cmd_units
+from .perception_node import synth_scan
 from .params import DEFAULTS
 from .ros_common import run_node, declare_config
 

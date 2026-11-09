@@ -3,9 +3,9 @@ import math
 import numpy as np
 import pytest
 
-from cone_avoidance.geometry import OffsetPath, QuinticSegment
+from cone_avoidance.mission_node import OffsetPath, QuinticSegment
 from cone_avoidance.params import Config
-from cone_avoidance.swept import body_circles, clearance_at_pose, evaluate, trace_path
+from cone_avoidance.mission_node import body_circles, clearance_at_pose, evaluate, trace_path
 
 CFG = Config()
 

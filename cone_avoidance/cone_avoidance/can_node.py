@@ -1,6 +1,87 @@
-"""SocketCAN bridge: commands out (0x110/0x120/0x130), feedback in (0x200/0x201/0x202)."""
+"""CAN codec and SocketCAN ROS bridge node."""
 
 from __future__ import annotations
+
+"""CAN frame encoding/decoding (500 kbps, standard frames, int16 little-endian)."""
+
+
+import struct
+
+ID_SPEED_CMD = 0x110
+ID_STEER_CMD = 0x120
+ID_ZERO_REQ = 0x130
+ID_WHEEL_SPEED = 0x200
+ID_STEER_FB = 0x201
+ID_ZERO_DONE = 0x202
+
+INT16_MIN, INT16_MAX = -32768, 32767
+MPS_TO_KMH = 3.6
+
+
+def _int16(value: float) -> int:
+    return max(INT16_MIN, min(INT16_MAX, int(round(value))))
+
+
+def encode_speed(v_mps: float, speed_scale: float) -> bytes:
+    return struct.pack("<h", _int16(v_mps * MPS_TO_KMH * speed_scale)) + bytes(6)
+
+
+def decode_speed(data: bytes, speed_scale: float) -> float:
+    return struct.unpack("<h", bytes(data[:2]))[0] / speed_scale / MPS_TO_KMH
+
+
+def wheel_to_output(wheel_rad: float, output_ratio: float, output_limit: float) -> float:
+    """0x120 carries the steering OUTPUT SHAFT angle, not the road-wheel angle."""
+    out = wheel_rad * output_ratio
+    return max(-output_limit, min(output_limit, out))
+
+
+def encode_steer(wheel_rad: float, output_ratio: float, output_limit: float,
+                 angle_scale: float):
+    out = wheel_to_output(wheel_rad, output_ratio, output_limit)
+    raw = _int16(out * angle_scale)
+    return struct.pack("<h", raw) + bytes(6), out, raw
+
+
+def decode_steer(data: bytes, output_ratio: float, angle_scale: float):
+    """Returns (wheel_rad, output_rad, raw)."""
+    raw = struct.unpack("<h", bytes(data[:2]))[0]
+    out = raw / angle_scale
+    return out / output_ratio, out, raw
+
+
+def encode_zero_request() -> bytes:
+    return bytes([1]) + bytes(7)
+
+
+def is_zero_done(data: bytes) -> bool:
+    return len(data) >= 1 and data[0] == 1
+
+
+def to_cmd_units(wheel_rad: float, speed_mps: float, cfg):
+    """Convert the controller's (wheel angle, m/s) into the units the command topics carry.
+
+    The steering topic may be read by this package's can_bridge or by an external
+    bridge that puts the value straight on 0x120 (which carries the OUTPUT SHAFT
+    angle), so the unit is a parameter and both ends read the same one.
+    """
+    st = cfg.steering
+    if cfg.control.steer_cmd_unit == "wheel":
+        angle = max(-cfg.max_wheel_steer, min(cfg.max_wheel_steer, wheel_rad))
+    else:
+        angle = wheel_to_output(wheel_rad, st.output_ratio, st.output_limit_rad)
+    speed = speed_mps * MPS_TO_KMH if cfg.control.speed_cmd_unit == "kmh" else speed_mps
+    return angle, speed
+
+
+def from_cmd_units(angle: float, speed: float, cfg):
+    """Inverse of :func:`to_cmd_units` — what the CAN bridge received, as (wheel rad, m/s)."""
+    st = cfg.steering
+    wheel = angle if cfg.control.steer_cmd_unit == "wheel" else angle / st.output_ratio
+    speed_mps = speed / MPS_TO_KMH if cfg.control.speed_cmd_unit == "kmh" else speed
+    return wheel, speed_mps
+"""SocketCAN bridge: commands out (0x110/0x120/0x130), feedback in (0x200/0x201/0x202)."""
+
 
 import json
 import math
@@ -9,8 +90,6 @@ from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile
 from std_msgs.msg import Bool, Float32, String
 
-from . import can_codec as codec
-from .can_codec import from_cmd_units
 from .ros_common import run_node, declare_config
 
 
@@ -37,7 +116,7 @@ class CanNode(Node):
         self.steer_cmd = 0.0
         self.speed_cmd = 0.0
         self.cmd_time = -math.inf
-        self.rx_time = {codec.ID_WHEEL_SPEED: -math.inf, codec.ID_STEER_FB: -math.inf}
+        self.rx_time = {ID_WHEEL_SPEED: -math.inf, ID_STEER_FB: -math.inf}
         self.zero_done = False
         self.zero_req_time = -math.inf
         self.last_out = 0.0
@@ -75,7 +154,7 @@ class CanNode(Node):
     def on_zero_request(self, msg):
         if msg.data:
             self.zero_done = False
-            self._send(codec.ID_ZERO_REQ, codec.encode_zero_request())
+            self._send(ID_ZERO_REQ, encode_zero_request())
 
     def _send(self, can_id, data):
         try:
@@ -93,14 +172,14 @@ class CanNode(Node):
                 return
             if frame.is_extended_id or len(frame.data) < 1:
                 continue
-            if frame.arbitration_id == codec.ID_WHEEL_SPEED and len(frame.data) >= 2:
-                self.rx_time[codec.ID_WHEEL_SPEED] = now
-                self.speed_pub.publish(Float32(data=codec.decode_speed(frame.data, self.cfg.can.speed_scale)))
-            elif frame.arbitration_id == codec.ID_STEER_FB and len(frame.data) >= 2:
-                self.rx_time[codec.ID_STEER_FB] = now
-                wheel, self.fb_out, _ = codec.decode_steer(frame.data, st.output_ratio, st.angle_scale)
+            if frame.arbitration_id == ID_WHEEL_SPEED and len(frame.data) >= 2:
+                self.rx_time[ID_WHEEL_SPEED] = now
+                self.speed_pub.publish(Float32(data=decode_speed(frame.data, self.cfg.can.speed_scale)))
+            elif frame.arbitration_id == ID_STEER_FB and len(frame.data) >= 2:
+                self.rx_time[ID_STEER_FB] = now
+                wheel, self.fb_out, _ = decode_steer(frame.data, st.output_ratio, st.angle_scale)
                 self.fb_pub.publish(Float32(data=wheel))
-            elif frame.arbitration_id == codec.ID_ZERO_DONE and codec.is_zero_done(frame.data):
+            elif frame.arbitration_id == ID_ZERO_DONE and is_zero_done(frame.data):
                 if not self.zero_done:
                     self.get_logger().info("steering zero done (0x202)")
                 self.zero_done = True
@@ -124,16 +203,16 @@ class CanNode(Node):
 
         if cfg.can.auto_zero_request and not self.zero_done and now - self.zero_req_time >= 1.0:
             self.zero_req_time = now
-            self._send(codec.ID_ZERO_REQ, codec.encode_zero_request())
+            self._send(ID_ZERO_REQ, encode_zero_request())
 
         cmd_lost = now - self.cmd_time > cfg.can.cmd_timeout
         speed = self.speed_cmd
         if cmd_lost and cfg.can.on_cmd_timeout == "stop":
             speed = 0.0  # the controller process is gone: nobody is steering
-        steer_data, self.last_out, _ = codec.encode_steer(
+        steer_data, self.last_out, _ = encode_steer(
             self.steer_cmd, st.output_ratio, st.output_limit_rad, st.angle_scale)
-        self._send(codec.ID_SPEED_CMD, codec.encode_speed(speed, cfg.can.speed_scale))
-        self._send(codec.ID_STEER_CMD, steer_data)
+        self._send(ID_SPEED_CMD, encode_speed(speed, cfg.can.speed_scale))
+        self._send(ID_STEER_CMD, steer_data)
 
         rx_lost = {hex(k): now - v > cfg.can.rx_timeout for k, v in self.rx_time.items()}
         mismatch = self._scale_mismatch()

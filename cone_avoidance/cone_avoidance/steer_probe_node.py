@@ -16,7 +16,7 @@ from typing import List, Optional
 from rclpy.node import Node
 from std_msgs.msg import Float32
 
-from .can_codec import to_cmd_units
+from .can_node import to_cmd_units
 from .ros_common import declare_config, run_node
 
 

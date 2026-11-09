@@ -3,10 +3,10 @@ import math
 import numpy as np
 import pytest
 
-from cone_avoidance.geometry import OffsetPath
+from cone_avoidance.mission_node import OffsetPath
 from cone_avoidance.params import Config
-from cone_avoidance.planner import Planner, VehicleState
-from cone_avoidance.tracker import ConePair
+from cone_avoidance.mission_node import Planner, VehicleState
+from cone_avoidance.perception_node import ConePair
 
 
 def pair(s, ds, first_id=0):

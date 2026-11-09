@@ -5,10 +5,10 @@ import struct
 import pytest
 import yaml
 
-from cone_avoidance import can_codec as codec
-from cone_avoidance.geometry import OffsetPath, ReferenceLine
+from cone_avoidance import can_node as codec
+from cone_avoidance.mission_node import OffsetPath, ReferenceLine
 from cone_avoidance.params import DEFAULTS, Config
-from cone_avoidance.stanley import StanleyController
+from cone_avoidance.control_node import StanleyController
 
 REF = ReferenceLine(0.0, 0.0, 0.0)
 
