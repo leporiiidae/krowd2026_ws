@@ -23,6 +23,7 @@ __pycache__/
 # Temporary files
 *.swp
 *~
+*.zip
 
 # Excluded legacy package
 stop_mission_0913/
