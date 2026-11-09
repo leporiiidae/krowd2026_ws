@@ -29,7 +29,7 @@ setup(
             "mission = cone_avoidance.mission_node:main",
             "control = cone_avoidance.control_node:main",
             "can_bridge = cone_avoidance.can_node:main",
-            "sim_vehicle = cone_avoidance.sim_vehicle_node:main",
+            "sim_vehicle = cone_avoidance.sim:sim_vehicle_main",
             "pointcloud_hold = cone_avoidance.pointcloud_hold_node:main",
             "sim = cone_avoidance.sim:main",
             "check_log = cone_avoidance.check_log:main",

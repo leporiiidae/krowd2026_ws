@@ -35,8 +35,7 @@ cone_avoidance/
   params.py           기본값 + 파생값(collision_width, d_limit ...) — YAML과 1:1
   ros_common.py       공통 ROS 파라미터·Odometry·노드 실행 도우미
   csv_logger.py       공통 CSV 로거
-  sim.py           킥네마틱 시뮬레이터 + 몬테카를로
-  sim_vehicle_node.py 합성 포인트클라우드를 발행하는 가상 차량 노드
+  sim.py           오프라인 몬테카를로 + 합성 포인트클라우드 가상 차량 노드
   pointcloud_hold_node.py / steer_probe_node.py / check_log.py  개발·진단 도구
 config/cone_avoidance.yaml
 launch/cone_avoidance.launch.py   실차
@@ -64,7 +63,7 @@ source /opt/ros/humble/setup.bash
 colcon build --packages-select cone_avoidance --symlink-install
 source install/local_setup.bash
 
-# 1) 오프라인 시뮬레이터 (ROS 불필요)
+# 1) 오프라인 시뮬레이터 (하드웨어 불필요)
 python3 -m cone_avoidance.sim --seeds 40                      # 몬테카를로
 python3 -m cone_avoidance.sim --seeds 40 --gap 4 --set speed.target=1.5 --set steering.max_rate_deg_s=30
 python3 -m cone_avoidance.sim --seed 3 --plot run.png --csv run.csv
@@ -244,7 +243,8 @@ WSL 에서는 GPU OpenGL 경로에서 RViz 가 약 10 초 뒤 세그폴트한다
 런치가 WSL 을 감지해 `LIBGL_ALWAYS_SOFTWARE=1` 로 띄운다(`rviz_software_gl:=false` 로 끔).
 백을 `/mnt/c/...` 에서 직접 재생하면 읽기가 느리다 — 부드럽게 보려면 `~/` 로 복사해서 재생.
 
-백 재생용 덮어쓰기는 `config/bag_replay.yaml` (GPS 토픽 `/ublox_gps_node/fix`, 자동 출발, 영점 대기 없음).
+백 재생용 덮어쓰기(GPS 토픽 `/ublox_gps_node/fix`, 로그 경로 `./logs_bag`)는
+`launch/bag.launch.py`에 포함되어 있어 별도 파라미터 파일이 필요 없다.
 
 ## 실제 백(0919_avoidance_f)에서 찾아 고친 것
 

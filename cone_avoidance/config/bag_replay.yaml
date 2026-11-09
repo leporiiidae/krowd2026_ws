@@ -1,8 +1,0 @@
-# 백 재생용 덮어쓰기. cone_avoidance.yaml 위에 얹힌다 (여기 없는 값은 그대로 유지).
-# 0919_avoidance_f 등 차량 기록 기준 토픽 이름.
-/**:
-  ros__parameters:
-    topics:
-      navsat: /ublox_gps_node/fix     # 기록된 RTK 토픽 (기본값 /gps/fix 가 아님)
-    logging:
-      path: ./logs_bag
